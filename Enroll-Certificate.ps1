@@ -83,6 +83,10 @@ function Test-IsAdmin {
         [System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# PS 5.1 does not support ?. — safe XML node text extraction
+function xval ($Node) { if ($Node) { $Node.InnerText } else { $null } }
+function xvalt ($Node) { if ($Node) { $Node.InnerText.Trim() } else { $null } }
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Cryptography — CSR generation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -289,8 +293,8 @@ function Invoke-SoapRequest ([string]$Url, [string]$Xml, [bool]$AllowSelfSigned)
                 $body = $rdr.ReadToEnd()
                 $errXml = [xml]$body
                 $ns = Get-XmlNsManager $errXml
-                $msg = $errXml.SelectSingleNode('//s:Fault/s:Reason/s:Text',$ns)?.InnerText
-                if (-not $msg) { $msg = $errXml.SelectSingleNode('//*[local-name()="faultstring"]')?.InnerText }
+                $msg = xval ($errXml.SelectSingleNode('//s:Fault/s:Reason/s:Text',$ns))
+                if (-not $msg) { $msg = xval ($errXml.SelectSingleNode('//*[local-name()="faultstring"]')) }
                 if ($msg) { throw "SOAP Fault: $msg" }
             } catch [System.Management.Automation.RuntimeException] { throw }
             catch { }
@@ -319,22 +323,22 @@ function Get-XmlNsManager ([xml]$Doc) {
 function Read-CepResponse ([string]$Xml) {
     $doc = [xml]$Xml;  $ns = Get-XmlNsManager $doc
     $fault = $doc.SelectSingleNode('//s:Fault',$ns)
-    if ($fault) { throw "SOAP Fault: $($fault.SelectSingleNode('s:Reason/s:Text',$ns)?.InnerText)" }
+    if ($fault) { throw "SOAP Fault: $(xval ($fault.SelectSingleNode('s:Reason/s:Text',$ns)))" }
 
     # OID reference map  id -> friendly name
     $oidMap = @{}
     foreach ($o in $doc.SelectNodes('//ep:oids/ep:oid',$ns)) {
-        $id = $o.SelectSingleNode('ep:oIDReferenceID',$ns)?.InnerText
-        $n  = $o.SelectSingleNode('ep:defaultName',$ns)?.InnerText
+        $id = xval ($o.SelectSingleNode('ep:oIDReferenceID',$ns))
+        $n  = xval ($o.SelectSingleNode('ep:defaultName',$ns))
         if ($id -and $n) { $oidMap[$id] = $n }
     }
 
     $templates = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($pol in $doc.SelectNodes('//ep:response/ep:policies/ep:policy',$ns)) {
         $attrs = $pol.SelectSingleNode('ep:attributes',$ns); if (-not $attrs) { continue }
-        $cn    = $attrs.SelectSingleNode('ep:commonName',$ns)?.InnerText; if (-not $cn) { continue }
-        if ($attrs.SelectSingleNode('ep:permission/ep:enroll',$ns)?.InnerText -eq 'false') { continue }
-        $ref   = $pol.SelectSingleNode('ep:policyOIDReference',$ns)?.InnerText
+        $cn    = xval ($attrs.SelectSingleNode('ep:commonName',$ns)); if (-not $cn) { continue }
+        if ((xval ($attrs.SelectSingleNode('ep:permission/ep:enroll',$ns))) -eq 'false') { continue }
+        $ref   = xval ($pol.SelectSingleNode('ep:policyOIDReference',$ns))
         $friendly = if ($ref -and $oidMap.ContainsKey($ref)) { $oidMap[$ref] } else { $cn }
         $templates.Add(@{ CommonName = $cn; FriendlyName = $friendly })
     }
@@ -342,8 +346,8 @@ function Read-CepResponse ([string]$Xml) {
     # CES URIs — prefer clientAuthentication=3 (Username/Password)
     $cesUris = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($caUri in $doc.SelectNodes('//ep:cAs/ep:cA/ep:uris/ep:cAUri',$ns)) {
-        $auth = $caUri.SelectSingleNode('ep:clientAuthentication',$ns)?.InnerText
-        $uri  = $caUri.SelectSingleNode('ep:uri',$ns)?.InnerText
+        $auth = xval ($caUri.SelectSingleNode('ep:clientAuthentication',$ns))
+        $uri  = xval ($caUri.SelectSingleNode('ep:uri',$ns))
         if ($uri) { $cesUris.Add(@{ Uri=$uri; AuthType=$auth }) }
     }
     return @{ Templates=$templates; CesUris=$cesUris }
@@ -352,14 +356,14 @@ function Read-CepResponse ([string]$Xml) {
 function Read-CesResponse ([string]$Xml) {
     $doc = [xml]$Xml;  $ns = Get-XmlNsManager $doc
     $fault = $doc.SelectSingleNode('//s:Fault',$ns)
-    if ($fault) { throw "SOAP Fault: $($fault.SelectSingleNode('s:Reason/s:Text',$ns)?.InnerText)" }
+    if ($fault) { throw "SOAP Fault: $(xval ($fault.SelectSingleNode('s:Reason/s:Text',$ns)))" }
 
     $rstr = $doc.SelectSingleNode('//wst:RequestSecurityTokenResponseCollection/wst:RequestSecurityTokenResponse',$ns)
     if (-not $rstr) { $rstr = $doc.SelectSingleNode('//wst:RequestSecurityTokenResponse',$ns) }
     if (-not $rstr) { throw 'No RequestSecurityTokenResponse in CES reply' }
 
-    $disp  = $rstr.SelectSingleNode('wst:DispositionMessage',$ns)?.InnerText?.Trim()
-    $reqId = $rstr.SelectSingleNode('wst:RequestID',$ns)?.InnerText?.Trim()
+    $disp  = xvalt ($rstr.SelectSingleNode('wst:DispositionMessage',$ns))
+    $reqId = xvalt ($rstr.SelectSingleNode('wst:RequestID',$ns))
 
     # Certificate token
     $bst = $rstr.SelectSingleNode('.//wsse:BinarySecurityToken',$ns)
@@ -369,7 +373,7 @@ function Read-CesResponse ([string]$Xml) {
         if ($b64) { return @{ Status='issued'; Certificate=$b64; RequestId=$reqId; Disposition=$disp } }
     }
 
-    $dl = $disp?.ToLower()
+    $dl = if ($disp) { $disp.ToLower() } else { '' }
     $st = if     ($dl -match 'issued')              { 'issued'  }
           elseif ($dl -match 'pending|submission')  { 'pending' }
           elseif ($dl -match 'denied|rejected')     { 'denied'  }
