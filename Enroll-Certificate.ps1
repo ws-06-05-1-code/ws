@@ -374,10 +374,10 @@ function Read-CesResponse ([string]$Xml) {
     }
 
     $dl = if ($disp) { $disp.ToLower() } else { '' }
-    $st = if     ($dl -match 'issued')              { 'issued'  }
-          elseif ($dl -match 'pending|submission')  { 'pending' }
-          elseif ($dl -match 'denied|rejected')     { 'denied'  }
-          else                                      { 'unknown' }
+    if     ($dl -match 'issued')             { $st = 'issued'  }
+    elseif ($dl -match 'pending|submission') { $st = 'pending' }
+    elseif ($dl -match 'denied|rejected')    { $st = 'denied'  }
+    else                                     { $st = 'unknown' }
     return @{ Status=$st; RequestId=$reqId; Disposition=$disp }
 }
 
@@ -668,9 +668,9 @@ function New-StepIndicatorPanel {
                 $g.DrawLine($pen,$prevCx+$r,$cy,$cx-$r,$cy); $pen.Dispose()
             }
 
-            $fillClr = if ($step -gt $i+1)      { $script:Clr.Green }
-                       elseif ($step -eq $i+1)   { $script:Clr.Blue }
-                       else                       { $script:Clr.Border }
+            if     ($step -gt $i+1)    { $fillClr = $script:Clr.Green }
+            elseif ($step -eq $i+1)   { $fillClr = $script:Clr.Blue  }
+            else                      { $fillClr = $script:Clr.Border }
 
             $br=[System.Drawing.SolidBrush]::new($fillClr)
             $g.FillEllipse($br,$cx-$r,$cy-$r,$r*2,$r*2); $br.Dispose()
