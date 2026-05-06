@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADCS Certificate Enrollment</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="header-icon">&#128274;</div>
+        <div>
+          <h1>ADCS Certificate Enrollment</h1>
+          <p>Request and install certificates via Active Directory Certificate Services (CES)</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="wizard-card">
+
+      <!-- Step progress bar -->
+      <nav class="step-nav" aria-label="Enrollment steps">
+        <div class="step-item active" id="nav-1">
+          <div class="step-bubble">1</div>
+          <span class="step-label">CES Config</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item" id="nav-2">
+          <div class="step-bubble">2</div>
+          <span class="step-label">Certificate</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item" id="nav-3">
+          <div class="step-bubble">3</div>
+          <span class="step-label">Submit</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item" id="nav-4">
+          <div class="step-bubble">4</div>
+          <span class="step-label">Install</span>
+        </div>
+      </nav>
+
+      <!-- ── Step 1: CES Configuration ──────────────────────────────────── -->
+      <section class="step-panel active" id="panel-1">
+        <h2 class="panel-title">CES Endpoint Configuration</h2>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="username">Username <span class="req">*</span></label>
+            <input id="username" type="text" placeholder="user  or  DOMAIN\user">
+          </div>
+          <div class="field">
+            <label for="password">Password <span class="req">*</span></label>
+            <input id="password" type="password" autocomplete="current-password">
+          </div>
+        </div>
+
+        <div class="field checkbox-field">
+          <label>
+            <input id="allowSelfSigned" type="checkbox">
+            Allow untrusted / self-signed TLS on CA servers (common for internal CAs)
+          </label>
+        </div>
+
+        <hr class="divider">
+
+        <div class="field">
+          <label for="cepUrl">CEP Endpoint URL</label>
+          <div class="input-btn-row">
+            <input id="cepUrl" type="url"
+              placeholder="https://ca-server/ADPolicyProvider_CEP_UsernamePassword/service.svc/CEP">
+            <button class="btn btn-secondary" id="btn-load-templates" onclick="loadTemplates()">
+              Load Templates
+            </button>
+          </div>
+          <span class="hint">Certificate Enrollment Policy Web Service — used to discover available templates and auto-fill the CES URL below</span>
+        </div>
+
+        <div id="template-status" class="hidden"></div>
+
+        <div class="field">
+          <label for="templateSelect">Certificate Template <span class="req">*</span></label>
+          <select id="templateSelect" onchange="onTemplateChange()">
+            <option value="">— load from CEP above, or enter name manually below —</option>
+          </select>
+        </div>
+
+        <div class="field" id="template-manual-field">
+          <label for="templateName">Template Internal Name <span class="req">*</span></label>
+          <input id="templateName" type="text" placeholder="e.g. WebServer">
+          <span class="hint">Enter the template's internal (programmatic) name, not its display name</span>
+        </div>
+
+        <div class="field">
+          <label for="cesUrl">CES Endpoint URL <span class="req">*</span></label>
+          <input id="cesUrl" type="url"
+            placeholder="https://ca-server/CertSrv/CES/service.svc/CES">
+          <span class="hint">Certificate Enrollment Web Service — auto-filled from CEP when templates are loaded</span>
+        </div>
+
+        <div class="panel-actions">
+          <button class="btn btn-primary" onclick="goToStep2()">Next: Certificate Details &rarr;</button>
+        </div>
+      </section>
+
+      <!-- ── Step 2: Certificate Details ───────────────────────────────── -->
+      <section class="step-panel" id="panel-2">
+        <h2 class="panel-title">Certificate Details</h2>
+
+        <div class="field-row">
+          <div class="field" style="flex:2">
+            <label for="cn">Common Name (CN) <span class="req">*</span></label>
+            <input id="cn" type="text" placeholder="server.corp.local">
+          </div>
+          <div class="field" style="flex:1">
+            <label for="keySize">Key Size</label>
+            <select id="keySize">
+              <option value="2048">2048-bit (recommended)</option>
+              <option value="4096">4096-bit (high security)</option>
+              <option value="1024">1024-bit (legacy)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="org">Organization (O)</label>
+            <input id="org" type="text" placeholder="Contoso Ltd.">
+          </div>
+          <div class="field">
+            <label for="ou">Org Unit (OU)</label>
+            <input id="ou" type="text" placeholder="IT">
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="locality">City / Locality (L)</label>
+            <input id="locality" type="text" placeholder="Redmond">
+          </div>
+          <div class="field">
+            <label for="state">State / Province (ST)</label>
+            <input id="state" type="text" placeholder="Washington">
+          </div>
+          <div class="field" style="max-width:90px">
+            <label for="country">Country (C)</label>
+            <input id="country" type="text" placeholder="US" maxlength="2">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="sans">Subject Alternative Names (SANs)</label>
+          <textarea id="sans" rows="4"
+            placeholder="One per line — DNS names, IP addresses, or e-mail&#10;server.corp.local&#10;192.168.10.5&#10;admin@corp.local"></textarea>
+        </div>
+
+        <div class="panel-actions">
+          <button class="btn btn-secondary" onclick="showStep(1)">&larr; Back</button>
+          <button class="btn btn-primary" onclick="submitRequest()">Submit Request &rarr;</button>
+        </div>
+      </section>
+
+      <!-- ── Step 3: Submit & Monitor ───────────────────────────────────── -->
+      <section class="step-panel" id="panel-3">
+        <h2 class="panel-title">Request Status</h2>
+
+        <div id="s3-spinner" class="spinner-wrap">
+          <div class="spinner"></div>
+          <p id="s3-spinner-msg">Generating key pair and submitting request&hellip;</p>
+        </div>
+
+        <div id="s3-result" class="hidden">
+          <table class="info-table">
+            <tr><th>Request ID</th><td id="s3-req-id">&mdash;</td></tr>
+            <tr><th>Status</th>    <td><span id="s3-badge" class="badge">&mdash;</span></td></tr>
+            <tr><th>Message</th>   <td id="s3-disposition">&mdash;</td></tr>
+          </table>
+
+          <div id="notice-pending" class="notice notice-info hidden">
+            <strong>&#8987; Awaiting CA Administrator Approval</strong>
+            <p>Your request is queued for approval. This page polls every 30 seconds automatically.</p>
+            <p class="muted">Last checked: <span id="last-checked">&mdash;</span></p>
+          </div>
+
+          <div id="notice-issued" class="notice notice-success hidden">
+            <strong>&#10003; Certificate Issued</strong>
+            <p>The CA has approved your request. Proceed to install the certificate.</p>
+          </div>
+
+          <div id="notice-denied" class="notice notice-error hidden">
+            <strong>&#10007; Request Denied</strong>
+            <p>The CA administrator denied this request. Start a new request or contact your PKI team.</p>
+          </div>
+
+          <div id="notice-error" class="notice notice-error hidden">
+            <strong>&#9888; Error</strong>
+            <p id="notice-error-msg"></p>
+          </div>
+        </div>
+
+        <div class="panel-actions" id="s3-actions" style="display:none">
+          <button class="btn btn-secondary" onclick="cancelRequest()">&larr; Back</button>
+          <button class="btn btn-primary hidden" id="btn-to-install" onclick="showStep(4)">
+            Next: Install &rarr;
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Step 4: Install ────────────────────────────────────────────── -->
+      <section class="step-panel" id="panel-4">
+        <h2 class="panel-title">Install Certificate</h2>
+
+        <div class="notice notice-warning">
+          <strong>&#9888; Administrator Privileges Required</strong>
+          <p>Installing to <em>Local Machine</em> requires this server process to be running as Administrator.
+             For <em>Current User</em>, normal user rights are sufficient.</p>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="storeLocation">Store Location</label>
+            <select id="storeLocation">
+              <option value="LocalMachine">Local Machine</option>
+              <option value="CurrentUser">Current User</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="storeName">Certificate Store</label>
+            <select id="storeName">
+              <option value="My">Personal (My)</option>
+              <option value="WebHosting">Web Hosting</option>
+              <option value="TrustedPeople">Trusted People</option>
+              <option value="Root">Trusted Root CAs</option>
+              <option value="CA">Intermediate CAs</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="install-success" class="notice notice-success hidden">
+          <strong>&#10003; Certificate Installed Successfully</strong>
+          <p>Thumbprint: <code id="thumbprint">&mdash;</code></p>
+          <p class="muted">You can verify it in <em>certlm.msc</em> (Local Machine) or <em>certmgr.msc</em> (Current User).</p>
+        </div>
+
+        <div id="install-error" class="notice notice-error hidden">
+          <strong>&#9888; Installation Failed</strong>
+          <p id="install-error-msg"></p>
+        </div>
+
+        <div class="panel-actions">
+          <button class="btn btn-secondary" onclick="showStep(3)">&larr; Back</button>
+          <button class="btn btn-primary" id="btn-install" onclick="doInstall()">
+            &#128274; Install to Certificate Store
+          </button>
+          <button class="btn btn-success hidden" id="btn-new" onclick="resetWizard()">
+            Start New Request
+          </button>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="app-footer">
+      <p>Communicates with ADCS via <strong>MS-WSTEP</strong> (WS-Trust 1.3 / Username+Password).
+         Private keys never leave this machine.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

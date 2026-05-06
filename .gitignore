@@ -1,0 +1,6 @@
+node_modules/
+*.pfx
+*.p12
+*.pem
+*.ps1
+.env
