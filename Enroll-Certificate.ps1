@@ -945,7 +945,7 @@ function Invoke-InstallCertificate {
 # ═══════════════════════════════════════════════════════════════════════════════
 $script:MainForm = [System.Windows.Forms.Form]::new()
 $f=$script:MainForm
-$f.Text='ADCS Certificate Enrollment'; $f.Size=[System.Drawing.Size]::new(794,642)
+$f.Text='ADCS Certificate Enrollment'; $f.ClientSize=[System.Drawing.Size]::new(778,642)
 $f.FormBorderStyle='FixedSingle'; $f.MaximizeBox=$false
 $f.StartPosition='CenterScreen'; $f.BackColor=$script:Clr.White
 $f.Font=$script:Fnt.Body
