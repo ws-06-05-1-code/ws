@@ -288,17 +288,19 @@ function Invoke-SoapRequest ([string]$Url, [string]$Xml, [bool]$AllowSelfSigned)
     } catch [System.Net.WebException] {
         $ex = $_.Exception
         if ($ex.Response) {
+            $soapMsg = $null
             try {
                 $rdr = [System.IO.StreamReader]::new($ex.Response.GetResponseStream())
                 $body = $rdr.ReadToEnd()
                 $errXml = [xml]$body
-                $ns = Get-XmlNsManager $errXml
-                $msg = xval ($errXml.SelectSingleNode('//s:Fault/s:Reason/s:Text',$ns))
-                if (-not $msg) { $msg = xval ($errXml.SelectSingleNode('//*[local-name()="faultstring"]')) }
-                if ($msg) { throw "SOAP Fault: $msg" }
-            } catch [System.Management.Automation.RuntimeException] { throw }
-            catch { }
-            throw "HTTP $([int]$ex.Response.StatusCode) — $($ex.Response.StatusDescription)"
+                $ns2 = Get-XmlNsManager $errXml
+                $soapMsg = xval ($errXml.SelectSingleNode('//s:Fault/s:Reason/s:Text',$ns2))
+                if (-not $soapMsg) { $soapMsg = xval ($errXml.SelectSingleNode('//*[local-name()="faultstring"]')) }
+            } catch { }
+            if ($soapMsg) { throw "SOAP Fault: $soapMsg" }
+            $code = [int]$ex.Response.StatusCode
+            $desc = $ex.Response.StatusDescription
+            throw "HTTP $code - $desc"
         }
         throw $ex.Message
     } finally {
