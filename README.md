@@ -69,19 +69,23 @@ The SAN textbox accepts one entry per line. Format is auto-detected:
 
 ### Key sizes
 
-`2048` (default), `4096`, or `1024` (legacy only — avoid for new certs).
+`3072` (default) or `4096`. Anything below 3072 is rejected by
+`New-CertificateSigningRequest`.
 
 ## Security notes
 
-- The script sets `[ServicePointManager]::SecurityProtocol` to **TLS 1.2/1.1**
-  for the duration of each request.
-- The **Allow untrusted / self-signed TLS** checkbox installs a permissive
-  `ServerCertificateValidationCallback` for the request and restores the
-  previous callback in `finally`. Use only when bootstrapping a CA whose
-  TLS cert is not yet trusted.
+- TLS 1.2 is enabled additively via
+  `[ServicePointManager]::SecurityProtocol -bor Tls12`, so any newer
+  protocols already enabled (e.g. TLS 1.3) are preserved.
+- The system's default `ServerCertificateValidationCallback` is always used
+  — there is no opt-in for self-signed/untrusted TLS. Bootstrap CA trust at
+  the OS level before running the script.
+- Subject DN attributes are escaped per **RFC 2253** (`ConvertTo-RdnSafe`)
+  before being concatenated into the X.500 name, so user input cannot inject
+  extra RDNs.
 - Username/password is sent via `wsse:UsernameToken` with `PasswordText` —
   the security of the password depends entirely on the TLS layer, so always
-  use HTTPS to a trusted endpoint when not bootstrapping.
+  use HTTPS to a trusted endpoint.
 - The RSA private key lives only in the script's memory. It is attached to
   the issued cert at install time and cleared from `$script:RsaKey` once the
   cert is in the store.
