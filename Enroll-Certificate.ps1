@@ -52,7 +52,7 @@ $script:Fnt = @{
 # ═══════════════════════════════════════════════════════════════════════════════
 $script:CurrentStep   = 1
 $script:RsaKey        = $null   # [System.Security.Cryptography.RSA] — kept in memory
-$script:EnrollCtx     = $null   # hashtable: RequestId, CesUrl, Username, Password, AllowSelfSigned
+$script:EnrollCtx     = $null   # hashtable: RequestId, CesUrl, Username, Password
 $script:IssuedCert64  = $null   # base64 certificate bytes from CES
 $script:PollTimer     = $null   # System.Windows.Forms.Timer
 
@@ -75,6 +75,22 @@ function ConvertTo-XmlSafe ([string]$s) {
        -replace '"','&quot;' -replace "'","&apos;"
 }
 
+# RFC 2253 escaping for DN attribute values — prevents RDN injection from user input.
+function ConvertTo-RdnSafe ([string]$s) {
+    if ([string]::IsNullOrEmpty($s)) { return '' }
+    $special = ',+"\<>;='
+    $sb = [System.Text.StringBuilder]::new($s.Length + 8)
+    for ($i = 0; $i -lt $s.Length; $i++) {
+        $c = $s[$i]
+        $esc = ($special.IndexOf($c) -ge 0) `
+            -or (($i -eq 0) -and ($c -eq '#' -or $c -eq ' ')) `
+            -or (($i -eq $s.Length - 1) -and $c -eq ' ')
+        if ($esc) { [void]$sb.Append('\') }
+        [void]$sb.Append($c)
+    }
+    return $sb.ToString()
+}
+
 function New-Uuid { [System.Guid]::NewGuid().ToString() }
 
 function Test-IsAdmin {
@@ -91,7 +107,8 @@ function xvalt ($Node) { if ($Node) { $Node.InnerText.Trim() } else { $null } }
 #  Cryptography — CSR generation
 # ═══════════════════════════════════════════════════════════════════════════════
 function New-CertificateSigningRequest {
-    param([hashtable]$Subject, [int]$KeyBits = 2048)
+    param([hashtable]$Subject, [int]$KeyBits = 3072)
+    if ($KeyBits -lt 3072) { throw "RSA key size must be at least 3072 bits (got $KeyBits)." }
 
     $rsa = [System.Security.Cryptography.RSA]::Create($KeyBits)
     $script:RsaKey = $rsa
@@ -100,7 +117,7 @@ function New-CertificateSigningRequest {
     $parts = [System.Collections.Generic.List[string]]::new()
     foreach ($pair in @(('CN',$Subject.CN),('OU',$Subject.OU),('O',$Subject.O),
                         ('L',$Subject.L),('ST',$Subject.ST),('C',$Subject.C))) {
-        if ($pair[1]) { $parts.Add("$($pair[0])=$($pair[1])") }
+        if ($pair[1]) { $parts.Add("$($pair[0])=$(ConvertTo-RdnSafe $pair[1])") }
     }
     $dn = [System.Security.Cryptography.X509Certificates.X500DistinguishedName]::new(
               ($parts -join ', '))
@@ -263,15 +280,11 @@ function New-RetrieveSoap ([string]$CesUrl, [string]$Username, [string]$Password
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HTTP / SOAP invocation
 # ═══════════════════════════════════════════════════════════════════════════════
-function Invoke-SoapRequest ([string]$Url, [string]$Xml, [bool]$AllowSelfSigned) {
+function Invoke-SoapRequest ([string]$Url, [string]$Xml) {
+    # Ensure TLS 1.2 is enabled without disabling whatever else is currently on (e.g. TLS 1.3).
     [System.Net.ServicePointManager]::SecurityProtocol =
-        [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11
+        [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
-    $prevCb = $null
-    if ($AllowSelfSigned) {
-        $prevCb = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-    }
     try {
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($Xml)
         $req   = [System.Net.HttpWebRequest]::Create($Url)
@@ -303,10 +316,6 @@ function Invoke-SoapRequest ([string]$Url, [string]$Xml, [bool]$AllowSelfSigned)
             throw "HTTP $code - $desc"
         }
         throw $ex.Message
-    } finally {
-        if ($AllowSelfSigned) {
-            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $prevCb
-        }
     }
 }
 
@@ -459,23 +468,17 @@ function Build-Step1 {
     $pnl.Size=[System.Drawing.Size]::new(778,460); $pnl.BackColor=$script:Clr.White
 
     # ── Credentials ───────────────────────────────────────────────────────────
-    $gbAuth = New-GroupBox 'Authentication' 10 8 756 98
+    $gbAuth = New-GroupBox 'Authentication' 10 8 756 72
     $gbAuth.Controls.Add((New-Lbl 'Username *' 10 20 340))
     $script:TxtUsername = New-Txt 10 40 340
     $gbAuth.Controls.Add($script:TxtUsername)
     $gbAuth.Controls.Add((New-Lbl 'Password *' 370 20 376))
     $script:TxtPassword = New-Txt 370 40 376 $true
     $gbAuth.Controls.Add($script:TxtPassword)
-    $script:ChkSelfSigned = [System.Windows.Forms.CheckBox]::new()
-    $script:ChkSelfSigned.Text='Allow untrusted / self-signed TLS on CA servers'
-    $script:ChkSelfSigned.Location=[System.Drawing.Point]::new(10,72)
-    $script:ChkSelfSigned.Size=[System.Drawing.Size]::new(700,20)
-    $script:ChkSelfSigned.Font=$script:Fnt.Body
-    $gbAuth.Controls.Add($script:ChkSelfSigned)
     $pnl.Controls.Add($gbAuth)
 
     # ── CEP ───────────────────────────────────────────────────────────────────
-    $gbCep = New-GroupBox 'Certificate Enrollment Policy (CEP)' 10 116 756 148
+    $gbCep = New-GroupBox 'Certificate Enrollment Policy (CEP)' 10 90 756 148
     $gbCep.Controls.Add((New-Lbl 'CEP Endpoint URL' 10 20 530))
     $script:TxtCepUrl = New-Txt 10 38 570
     $gbCep.Controls.Add($script:TxtCepUrl)
@@ -498,14 +501,14 @@ function Build-Step1 {
     $pnl.Controls.Add($gbCep)
 
     # ── CES ───────────────────────────────────────────────────────────────────
-    $gbCes = New-GroupBox 'Certificate Enrollment Service (CES)' 10 274 756 70
+    $gbCes = New-GroupBox 'Certificate Enrollment Service (CES)' 10 248 756 70
     $gbCes.Controls.Add((New-Lbl 'CES Endpoint URL *' 10 20 736))
     $script:TxtCesUrl = New-Txt 10 38 736
     $gbCes.Controls.Add($script:TxtCesUrl)
     $pnl.Controls.Add($gbCes)
 
     # ── Hint ──────────────────────────────────────────────────────────────────
-    $hint = New-Lbl 'The CES URL is auto-filled from CEP. Both fields accept https:// URLs with Username/Password authentication.' 10 354 756 32 $script:Fnt.Small
+    $hint = New-Lbl 'The CES URL is auto-filled from CEP. Both fields accept https:// URLs with Username/Password authentication.' 10 328 756 32 $script:Fnt.Small
     $hint.ForeColor=$script:Clr.Muted
     $pnl.Controls.Add($hint)
 
@@ -537,7 +540,7 @@ function Build-Step2 {
     $script:TxtCN = New-Txt 10 38 480
     $gbSubj.Controls.Add($script:TxtCN)
     $gbSubj.Controls.Add((New-Lbl 'Key Size' 500 20 246))
-    $script:CmbKeySize = New-Combo 500 38 246 @('2048-bit (Recommended)','4096-bit (High Security)','1024-bit (Legacy)')
+    $script:CmbKeySize = New-Combo 500 38 246 @('3072-bit (Recommended)','4096-bit (High Security)')
     $gbSubj.Controls.Add($script:CmbKeySize)
 
     $gbSubj.Controls.Add((New-Lbl 'Organization (O)' 10 74 363))
@@ -735,7 +738,7 @@ function Invoke-LoadTemplates {
 
     try {
         $soap   = New-GetPoliciesSoap $cepUrl $user $pass
-        $xml    = Invoke-SoapRequest $cepUrl $soap $script:ChkSelfSigned.Checked
+        $xml    = Invoke-SoapRequest $cepUrl $soap
         $result = Read-CepResponse $xml
 
         # Populate template combo
@@ -743,7 +746,6 @@ function Invoke-LoadTemplates {
         $script:CmbTemplate.Items.Add('— select a template —') | Out-Null
         foreach ($t in $result.Templates) {
             $display = if ($t.FriendlyName -ne $t.CommonName) { "$($t.FriendlyName) ($($t.CommonName))" } else { $t.CommonName }
-            $item = [System.Windows.Forms.ListViewItem]::new()   # reuse object to carry Tag
             $script:CmbTemplate.Items.Add($display) | Out-Null
         }
         # Store CommonName values in Tag array for lookup
@@ -796,8 +798,7 @@ function Invoke-EnrollRequest {
     $user     = $script:TxtUsername.Text.Trim()
     $pass     = $script:TxtPassword.Text
     $template = Get-ResolvedTemplateName
-    $selfSign = $script:ChkSelfSigned.Checked
-    $keyBits  = switch ($script:CmbKeySize.SelectedIndex) { 1 {4096} 2 {1024} default {2048} }
+    $keyBits  = switch ($script:CmbKeySize.SelectedIndex) { 1 {4096} default {3072} }
 
     $sans = ($script:TxtSANs.Text -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
@@ -811,12 +812,12 @@ function Invoke-EnrollRequest {
     try {
         $csr64  = New-CertificateSigningRequest -Subject $subject -KeyBits $keyBits
         $soap   = New-EnrollSoap $cesUrl $user $pass $csr64 $template
-        $xml    = Invoke-SoapRequest $cesUrl $soap $selfSign
+        $xml    = Invoke-SoapRequest $cesUrl $soap
         $result = Read-CesResponse $xml
 
         $script:EnrollCtx = @{
             RequestId=$result.RequestId; CesUrl=$cesUrl
-            Username=$user; Password=$pass; AllowSelfSigned=$selfSign
+            Username=$user; Password=$pass
         }
         Update-Step3Status $result
     } catch {
@@ -879,7 +880,7 @@ function Start-PollTimer {
         try {
             $soap   = New-RetrieveSoap $script:EnrollCtx.CesUrl $script:EnrollCtx.Username `
                                        $script:EnrollCtx.Password $script:EnrollCtx.RequestId
-            $xml    = Invoke-SoapRequest $script:EnrollCtx.CesUrl $soap $script:EnrollCtx.AllowSelfSigned
+            $xml    = Invoke-SoapRequest $script:EnrollCtx.CesUrl $soap
             $result = Read-CesResponse $xml
             $script:LblLastChecked.Text="Last checked: $(Get-Date -Format 'HH:mm:ss')"
             if ($result.Status -ne 'pending') {
